@@ -1,0 +1,167 @@
+# todo, site is close
+
+# you need to download, unzip and put the chromedriver.exe 
+# in same folder of this py file 
+# from the  https://chromedriver.chromium.org/downloads 
+
+from __future__ import print_function
+import os
+import socket
+import time
+from matplotlib.style import available
+from selenium import webdriver
+from selenium.webdriver.common.desired_capabilities \
+    import DesiredCapabilities
+import pandas as pd
+import numpy as np
+import csv
+import datetime
+# weekdays as a tuple
+weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+
+from selenium.webdriver import ActionChains
+from selenium.webdriver.support.ui import Select
+
+findElementDelay=0.5
+
+# 設置超時
+socket.setdefaulttimeout(10)
+
+debugSiteID = 0
+# debugSiteID = 327
+
+USER_AGENT = 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'
+HEADERS = {'User-Agent': USER_AGENT}
+
+opt = webdriver.ChromeOptions()  # 创建浏览器
+# 无窗口模式
+# opt.add_argument('--headless')
+
+caps = DesiredCapabilities().CHROME
+caps["pageLoadStrategy"] = "normal"  #  Waits for full page load
+# caps["pageLoadStrategy"] = "none"  # Do not wait for full page load
+
+# main function
+if __name__ == "__main__":
+    browser = webdriver.Chrome(desired_capabilities=caps, options=opt)  # 创建浏览器对象
+    action_chains = ActionChains(browser)
+
+    # # get now
+    nowDateTimeYMd = time.strftime("%Y%m%d", time.localtime())
+    csvFileName='lawsonsLanding_'+nowDateTimeYMd+'.csv'
+   
+    if debugSiteID>0:
+        maxCSVSiteID=debugSiteID
+        endSiteID=debugSiteID+1
+    else:
+        # file exists?
+        maxCSVSiteID=1
+        endSiteID=327
+        if os.path.exists(csvFileName):
+            # load csv file
+            colList=['siteID', 'siteNumText', 'sitePriceText'\
+                    ,'monthYearText','availableFS','availableOtherDays']
+            df = pd.read_csv(csvFileName, encoding='utf-8', names=colList, header=None)
+            if df.shape[0]>0:
+                # get the max of siteID 
+                maxCSVSiteID = max(df['siteID'])
+
+    # get queryLink
+    queryLink=u'https://LL.com/resnexus/reservations/book/34A866D5-3AF1-4260-8069-3D0B793AD00D/map?tabID=8&mapID=8'
+    # Open a new window
+    browser.execute_script("window.open('');")
+    # Switch to the new window and open URL B
+    browser.switch_to.window(browser.window_handles[-1])
+
+    # nowDateTimeYMdHMS = time.strftime("%Y%m%d%H%M%S", time.localtime())
+    browser.get(queryLink)  # 打开网页
+
+    acceptDisclaimerGDPRBTN=browser.find_element_by_xpath\
+        (".//button[@class='acceptDisclaimerGDPR']")
+    time.sleep(findElementDelay)
+    if acceptDisclaimerGDPRBTN is not None:
+        acceptDisclaimerGDPRBTN.click()
+        time.sleep(1)
+    for siteID in range(maxCSVSiteID, endSiteID):
+        siteElem=browser.find_element_by_id\
+            ('testMove'+str(siteID))
+        time.sleep(findElementDelay)
+        # siteElem.click()
+        browser.execute_script("arguments[0].click();", siteElem)
+        time.sleep(1)
+
+        siteNumText=browser.find_element_by_xpath\
+            (".//div[@class='room-name-price']").text
+        time.sleep(findElementDelay)
+        sitePriceText=browser.find_element_by_xpath\
+            (".//div[@class='room-rates-dropdown']").text\
+            .replace('\n',' ').replace('\r','')
+        time.sleep(findElementDelay)
+
+        for month in range(1,4):
+            if month>1:
+                calendars=browser.find_elements_by_xpath\
+                    (".//div[@class='mini-calendar']")
+                time.sleep(findElementDelay)
+                calendar=calendars[-1]
+                nextMonthBTN=[]
+                nextMonthBTN=calendar.find_element_by_xpath\
+                    (".//div[@class='arrow-button arrow-right']")
+                time.sleep(findElementDelay)
+                browser.execute_script("arguments[0].click()", nextMonthBTN)
+
+            monthSections=browser.find_elements_by_xpath\
+                (".//div[@class='month-section']")
+            time.sleep(findElementDelay)
+            monthSectionText=monthSections[-1].text
+            monthYearText=monthSectionText\
+                [0:monthSectionText.find('\n')]
+
+            dateGridElem=monthSections[-1]\
+                .find_elements_by_xpath\
+                (".//div[@class='date-grid']")\
+                [0]
+            time.sleep(findElementDelay)
+            allDays=[]
+            allDays=dateGridElem\
+                .find_elements_by_tag_name('div')
+            availableList=['']* (31)
+            idx=0
+            availableListFS=['']* (31)
+            idxFS=0
+            # loop over the availableAll
+            for eachDay in allDays:
+                eachDayClass=eachDay.get_attribute("class")
+                if not(\
+                    eachDayClass.find('selected')>0\
+                    # or eachDayClass.find('occupied')>0\
+                    # or eachDayClass.find('disabled')>0\
+                    or eachDayClass=='disabled occupied'\
+                    or eachDayClass=='occupied disabled'\
+                    or eachDayClass=='occupied'\
+                    or eachDayClass=='disabled'\
+                    or eachDay.text =='' ):
+                    available=eachDay
+                    # get the week day of a date
+                    weekDay = datetime.datetime.strptime\
+                        (monthYearText+' '+available.text, '%B %Y %d')\
+                        .weekday()
+                    # if the week day is not 0,6, then it is available
+                    if weekDay==4 or weekDay==5:
+                        availableListFS[idxFS]=available.text+weekdays[weekDay]
+                        idxFS+=1
+                    else:
+                        availableList[idx]=available.text+weekdays[weekDay]
+                        idx+=1
+            # remove empty element in availableList
+            availableList=availableList[0:idx]
+            availableListFS=availableListFS[0:idxFS]
+            with open(csvFileName, 'a') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow([siteID, siteNumText,sitePriceText\
+                                ,monthYearText,availableListFS,availableList])
+        backBTN=browser.find_element_by_xpath(".//button[@class='white back-button']")
+        time.sleep(findElementDelay)
+        backBTN.click()
+        time.sleep(1)
+        pass
